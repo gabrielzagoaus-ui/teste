@@ -3966,9 +3966,29 @@ function handleTrackerFile(event) {
         existing.push(entry);
         count++;
       }
-      saveTrackerData(existing);
-      renderTrackerTable();
-      alert('Imported ' + count + ' new entries.' + (skipped > 0 ? ' Skipped ' + skipped + ' duplicates.' : ''));
+      if (count === 0) {
+        alert('No new entries to import.' + (skipped > 0 ? ' Skipped ' + skipped + ' duplicates.' : ''));
+        return;
+      }
+      const newEntries = existing.slice(existing.length - count);
+      const batchSize = 499;
+      const batches = [];
+      for (let i = 0; i < newEntries.length; i += batchSize) {
+        const b = db.batch();
+        newEntries.slice(i, i + batchSize).forEach(entry => {
+          b.set(db.collection('tracker').doc(String(entry.id)), entry);
+        });
+        batches.push(b.commit());
+      }
+      Promise.all(batches)
+        .then(() => {
+          renderTrackerTable();
+          alert('Imported ' + count + ' new entries.' + (skipped > 0 ? ' Skipped ' + skipped + ' duplicates.' : ''));
+        })
+        .catch(e => {
+          console.error('Import error:', e);
+          alert('Error saving to database: ' + e.message);
+        });
     } catch(err) {
       alert('Error reading file: ' + err.message);
     }
