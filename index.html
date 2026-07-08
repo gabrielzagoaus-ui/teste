@@ -508,7 +508,99 @@
       color: #1D2D3E;
       border-color: #E5CC00;
     }
+    .header-agent-pill.temp-cover {
+      background: #E65100;
+      color: #fff;
+      border-color: #BF360C;
+    }
+    .header-agent-pill.assist {
+      background: #1565C0;
+      color: #fff;
+      border-color: #0D47A1;
+    }
     .header-agent-pill:hover { opacity: 0.85; }
+
+    /* ── TEMP COVER / ASSIST modals ── */
+    .tc-modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
+    .tc-modal-overlay.open { display: flex; }
+    .tc-modal {
+      background: #fff;
+      border-radius: 14px;
+      padding: 28px 28px 22px;
+      min-width: 300px;
+      max-width: 380px;
+      width: 90%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    }
+    body.dark .tc-modal { background: #1e1e1e; color: #e0e0e0; }
+    .tc-modal h3 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+    .tc-modal .tc-sub { font-size: 12px; color: #8696A9; margin-bottom: 18px; }
+    body.dark .tc-modal .tc-sub { color: #aaa; }
+    .tc-agent-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+    .tc-agent-btn {
+      background: #f0f2f5; border: 1px solid #dde1e7; border-radius: 8px;
+      padding: 10px 14px; font-size: 13px; font-weight: 500;
+      text-align: left; cursor: pointer; transition: background 0.15s;
+      font-family: inherit;
+    }
+    body.dark .tc-agent-btn { background: #2a2a2a; border-color: #444; color: #e0e0e0; }
+    .tc-agent-btn:hover { background: #e1e5ed; }
+    body.dark .tc-agent-btn:hover { background: #333; }
+    .tc-agent-btn.nobody { color: #8696A9; font-style: italic; }
+    .tc-name-input {
+      width: 100%; box-sizing: border-box;
+      padding: 10px 12px; border: 1px solid #dde1e7; border-radius: 8px;
+      font-size: 13px; font-family: inherit; margin-bottom: 12px;
+    }
+    body.dark .tc-name-input { background: #2a2a2a; border-color: #444; color: #e0e0e0; }
+    .tc-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .tc-btn-cancel {
+      background: none; border: 1px solid #dde1e7; border-radius: 8px;
+      padding: 8px 18px; font-size: 13px; cursor: pointer; font-family: inherit;
+    }
+    body.dark .tc-btn-cancel { border-color: #444; color: #e0e0e0; }
+    .tc-btn-confirm {
+      background: #1565C0; color: #fff; border: none; border-radius: 8px;
+      padding: 8px 18px; font-size: 13px; cursor: pointer; font-family: inherit;
+      font-weight: 600;
+    }
+    .tc-btn-confirm:hover { background: #0D47A1; }
+    /* assist button inside shift row */
+    .assist-btn {
+      margin-left: 8px;
+      background: none;
+      border: 1px solid rgba(255,255,255,0.5);
+      color: #fff;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 500;
+      opacity: 0.75;
+      transition: opacity 0.15s, background 0.15s;
+      vertical-align: middle;
+    }
+    .assist-btn:hover { opacity: 1; background: rgba(255,255,255,0.15); }
+    /* temp cover badge inside status card */
+    .temp-cover-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.25);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
 
     /* ── SETTINGS BUTTON (header) ── */
     .exc-btn {
@@ -2096,7 +2188,9 @@ const _cache = {
   notes: { brazil: [], ireland: [], asia: [] },
   exceptions: [],
   awayAgents: [],
-  schedules: { brazil: null, ireland: null, asia: null }
+  schedules: { brazil: null, ireland: null, asia: null },
+  tempCovers: {},   // { "AgentName": { coveredBy: "Name" | null } }
+  assistants: []    // [{ name: "Name", region: "brazil" }]
 };
 
 // ── Helper: write a single doc to Firestore ──
@@ -2924,6 +3018,144 @@ function isAgentAway(agentName) {
   return loadAwayAgents().includes(agentName.toLowerCase());
 }
 
+// ═══════════════════════════════════════════════════════════
+// TEMP COVER
+// ═══════════════════════════════════════════════════════════
+function saveTempCovers(map) {
+  _cache.tempCovers = map;
+  fsSet('shared', 'tempCovers', { map }).catch(e => console.error('saveTempCovers:', e));
+}
+function isTempCovered(agentName) {
+  return !!(_cache.tempCovers && _cache.tempCovers[agentName]);
+}
+function getTempCover(agentName) {
+  return _cache.tempCovers && _cache.tempCovers[agentName];
+}
+
+// State for the cover modal
+let _coverModal_agent = null;
+let _coverModal_region = null;
+
+function openCoverModal(agentName, regionKey) {
+  const cover = getTempCover(agentName);
+  if (cover) {
+    // Already covered → click again to restore (remove cover)
+    const map = Object.assign({}, _cache.tempCovers);
+    delete map[agentName];
+    saveTempCovers(map);
+    return;
+  }
+  _coverModal_agent = agentName;
+  _coverModal_region = regionKey;
+  const region = REGIONS.find(r => r.key === regionKey);
+  document.getElementById('tc-cover-title').textContent = agentName + ' — temporary cover';
+  document.getElementById('tc-cover-sub').textContent = 'Who will cover ' + agentName + '?';
+
+  // Build list of all agents in this region (flat from schedule, deduplicated)
+  const dayNum = new Date().getDay();
+  const agentSet = new Set();
+  if (region) {
+    region.shifts.forEach(sh => {
+      const ags = sh.rotation
+        ? getRotationAgentsForDate(sh.rotation, new Intl.DateTimeFormat('en-CA').format(new Date()))
+        : ((sh.agents || {})[dayNum] || []);
+      ags.forEach(a => {
+        const n = a.startsWith('__rep__') ? a.slice(7) : a;
+        if (n && n !== agentName) agentSet.add(n);
+      });
+    });
+  }
+
+  const list = document.getElementById('tc-cover-list');
+  list.innerHTML = '';
+  agentSet.forEach(name => {
+    const btn = document.createElement('button');
+    btn.className = 'tc-agent-btn';
+    btn.textContent = name;
+    btn.onclick = () => selectCover(name);
+    list.appendChild(btn);
+  });
+
+  // Nobody option
+  const nobody = document.createElement('button');
+  nobody.className = 'tc-agent-btn nobody';
+  nobody.textContent = 'Nobody — leave uncovered';
+  nobody.onclick = () => selectCover(null);
+  list.appendChild(nobody);
+
+  document.getElementById('tc-cover-overlay').classList.add('open');
+}
+
+function selectCover(coverName) {
+  if (!_coverModal_agent) return;
+  const map = Object.assign({}, _cache.tempCovers);
+  map[_coverModal_agent] = { coveredBy: coverName };
+  saveTempCovers(map);
+  closeCoverModal();
+}
+
+function closeCoverModal() {
+  document.getElementById('tc-cover-overlay').classList.remove('open');
+  _coverModal_agent = null;
+  _coverModal_region = null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ASSISTANTS
+// ═══════════════════════════════════════════════════════════
+function saveAssistants(list) {
+  _cache.assistants = list;
+  fsSet('shared', 'assistants', { list }).catch(e => console.error('saveAssistants:', e));
+}
+
+let _assistModal_region = null;
+let _assistModal_agentContext = null;
+let _stopAssist_name = null;
+
+function openAssistModal(regionKey, agentContext) {
+  _assistModal_region = regionKey;
+  _assistModal_agentContext = agentContext;
+  const region = REGIONS.find(r => r.key === regionKey);
+  document.getElementById('tc-assist-title').textContent = 'Join to assist — ' + (region ? region.label : regionKey);
+  document.getElementById('tc-assist-sub').textContent = 'Assisting ' + agentContext + '. Enter your name to join.';
+  document.getElementById('tc-assist-name').value = '';
+  document.getElementById('tc-assist-overlay').classList.add('open');
+  setTimeout(() => {
+    const inp = document.getElementById('tc-assist-name');
+    inp.focus();
+    inp.onkeydown = e => { if (e.key === 'Enter') confirmAssist(); };
+  }, 80);
+}
+function closeAssistModal() {
+  document.getElementById('tc-assist-overlay').classList.remove('open');
+  _assistModal_region = null;
+  _assistModal_agentContext = null;
+}
+function confirmAssist() {
+  const name = (document.getElementById('tc-assist-name').value || '').trim();
+  if (!name) return;
+  const list = (_cache.assistants || []).slice();
+  list.push({ name, region: _assistModal_region });
+  saveAssistants(list);
+  closeAssistModal();
+}
+
+function openStopAssistModal(name) {
+  _stopAssist_name = name;
+  document.getElementById('tc-stopassist-sub').textContent = name + ', do you want to stop assisting?';
+  document.getElementById('tc-stopassist-overlay').classList.add('open');
+}
+function closeStopAssistModal() {
+  document.getElementById('tc-stopassist-overlay').classList.remove('open');
+  _stopAssist_name = null;
+}
+function confirmStopAssist() {
+  if (!_stopAssist_name) return;
+  const list = (_cache.assistants || []).filter(a => a.name !== _stopAssist_name);
+  saveAssistants(list);
+  closeStopAssistModal();
+}
+
 function renderHeaderAgents() {
   const container = document.getElementById('header-agents');
   if (!container) return;
@@ -2936,12 +3168,37 @@ function renderHeaderAgents() {
           const name = ag.startsWith('__rep__') ? ag.slice(7) : ag;
           const firstName = name.split(' ')[0];
           const away = isAgentAway(name);
-          const cls = away ? 'header-agent-pill away' : 'header-agent-pill';
-          pills.push(`<span class="${cls}" onclick="toggleAgentAway('${name.replace(/'/g, "\\'")}')" title="${away ? 'Away — click to set back on shift' : 'On shift — click to mark as away'}">${firstName}</span>`);
+          const cover = getTempCover(name);
+
+          if (away && !cover) {
+            // Away with no temp cover → don't show in header
+            return;
+          }
+
+          if (cover) {
+            // Temp cover active
+            const coveredBy = cover.coveredBy;
+            if (coveredBy) {
+              const label = coveredBy.split(' ')[0] + ' ▸ ' + firstName;
+              pills.push(`<span class="header-agent-pill temp-cover" onclick="openCoverModal('${name.replace(/'/g, "\\'")}','${r.key}')" title="Temp cover: ${coveredBy} covering ${name} — click to restore">${label} <span class="temp-cover-badge">TEMP</span></span>`);
+            } else {
+              // Nobody covering — show as amber pill with TEMP badge (uncovered)
+              pills.push(`<span class="header-agent-pill temp-cover" style="background:#8696A9;border-color:#6b7a8d" onclick="openCoverModal('${name.replace(/'/g, "\\'")}','${r.key}')" title="Uncovered (${name} away) — click to assign cover">${firstName} <span class="temp-cover-badge">TEMP</span></span>`);
+            }
+          } else {
+            // Normal on-shift green pill
+            pills.push(`<span class="header-agent-pill" onclick="openCoverModal('${name.replace(/'/g, "\\'")}','${r.key}')" title="On shift — click to set temporary cover">${firstName}</span>`);
+          }
         });
       });
     }
   });
+
+  // Assist pills
+  (_cache.assistants || []).forEach(a => {
+    pills.push(`<span class="header-agent-pill assist" onclick="openStopAssistModal('${a.name.replace(/'/g, "\\'")}') " title="Assisting — click to stop">${a.name.split(' ')[0]} <span class="temp-cover-badge">ASSIST</span></span>`);
+  });
+
   container.innerHTML = pills.join('');
 }
 
@@ -2976,20 +3233,42 @@ function renderStatusCards() {
       const shift = active[0];
       const agentNames = shift.ags.map(ag => ag.startsWith('__rep__') ? ag.slice(7) : ag);
       const agents = agentNames.join(', ');
-      // Check if the primary agent is away
-      const primaryAgent = agentNames[0] || '';
       const anyAway = agentNames.some(a => isAgentAway(a));
-      const awayCls = anyAway ? ' away-card' : '';
-      const statusLabel = anyAway ? 'Away' : 'On shift now';
       const nxt = nextShift(region, info, dateStr);
       let nextHTML = '';
       if (nxt) {
         nextHTML = `<div class="as-status-next">Next: ${nxt.ags.map(ag => ag.startsWith('__rep__') ? ag.slice(7) : ag).join(', ')} · ${nxt.start}</div>`;
       }
       const shiftAgentsJSON = JSON.stringify(agentNames).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
-      return `<div class="as-status-card active-card${awayCls}" onclick="toggleShiftAway(JSON.parse(this.dataset.agents))" data-agents="${shiftAgentsJSON}">
+
+      // Temp cover state
+      const primaryAgent = agentNames[0] || '';
+      const cover = getTempCover(primaryAgent);
+      let statusLabel, cardCls, agentDisplay, onclickAttr;
+
+      if (cover) {
+        const coveredBy = cover.coveredBy;
+        statusLabel = coveredBy ? 'Temp cover' : 'Uncovered';
+        cardCls = 'as-status-card active-card away-card';
+        agentDisplay = coveredBy
+          ? `${coveredBy} <span class="temp-cover-badge" style="background:rgba(0,0,0,0.18);color:#1D2D3E">TEMP</span> <span style="opacity:0.6;font-size:11px">(covers ${primaryAgent})</span>`
+          : `${primaryAgent} <span class="temp-cover-badge" style="background:rgba(0,0,0,0.18);color:#1D2D3E">UNCOVERED</span>`;
+        onclickAttr = `onclick="openCoverModal('${primaryAgent.replace(/'/g, "\\'")}','${region.key}')"`;
+      } else if (anyAway) {
+        statusLabel = 'Away';
+        cardCls = 'as-status-card active-card away-card';
+        agentDisplay = agents;
+        onclickAttr = `onclick="openCoverModal('${primaryAgent.replace(/'/g, "\\'")}','${region.key}')"`;
+      } else {
+        statusLabel = 'On shift now';
+        cardCls = 'as-status-card active-card';
+        agentDisplay = agents;
+        onclickAttr = `onclick="openCoverModal('${primaryAgent.replace(/'/g, "\\'")}','${region.key}')"`;
+      }
+
+      return `<div class="${cardCls}" ${onclickAttr} data-agents="${shiftAgentsJSON}">
         <div class="as-status-header"><span class="flag">${region.flag}</span> ${statusLabel}</div>
-        <div class="as-status-agent">${agents}</div>
+        <div class="as-status-agent">${agentDisplay}</div>
         <div class="as-status-shift">${shift.name} · ${pad(shift.start[0])}:${pad(shift.start[1])} – ${pad(shift.end[0])}:${pad(shift.end[1])}</div>
         ${nextHTML}
       </div>`;
@@ -3073,13 +3352,22 @@ function renderScheduleCards() {
       }
       
       const rowCls = isActive ? (isAway ? ' row-active row-away' : ' row-active') : '';
-      
+
+      // Assist button — only on active shift rows
+      let assistBtnHTML = '';
+      if (isActive) {
+        const agentContext = agents.map(a => a.startsWith('__rep__') ? a.slice(7) : a).join(', ');
+        const regionKeySafe = region.key.replace(/'/g, "\\'");
+        const agentContextSafe = agentContext.replace(/'/g, "\\'");
+        assistBtnHTML = ` <button class="assist-btn" onclick="event.stopPropagation();openAssistModal('${regionKeySafe}','${agentContextSafe}')" title="Join to assist">+ Assist</button>`;
+      }
+
       rowsHTML += `<div class="sim-shift-row${rowCls}">
         <div class="sim-shift-label">
           <strong>${shift.name}</strong>
           <div class="sim-shift-time">${pad(shift.start[0])}:${pad(shift.start[1])} – ${pad(shift.end[0])}:${pad(shift.end[1])}${tzShort ? ' ' + tzShort : ''}</div>
         </div>
-        <div class="sim-agents">${agentsStr}</div>
+        <div class="sim-agents">${agentsStr}${assistBtnHTML}</div>
       </div>`;
     });
     
@@ -3664,6 +3952,20 @@ function initApp() {
     renderStatusCards();
     renderScheduleCards();
   }, e => console.error('awayAgents onSnapshot:', e));
+
+  // ── TEMP COVERS ──
+  db.collection('shared').doc('tempCovers').onSnapshot(snap => {
+    _cache.tempCovers = snap.exists ? (snap.data().map || {}) : {};
+    renderHeaderAgents();
+    renderStatusCards();
+  }, e => console.error('tempCovers onSnapshot:', e));
+
+  // ── ASSISTANTS ──
+  db.collection('shared').doc('assistants').onSnapshot(snap => {
+    _cache.assistants = snap.exists ? (snap.data().list || []) : [];
+    renderHeaderAgents();
+    renderScheduleCards();
+  }, e => console.error('assistants onSnapshot:', e));
 
   // ── TRACKER: live collection listener ──
   db.collection('tracker').onSnapshot(snap => {
@@ -4907,5 +5209,42 @@ function renderCategoryChart(data, total) {
 }
 
 </script>
+
+<!-- ── TEMP COVER MODAL ── -->
+<div class="tc-modal-overlay" id="tc-cover-overlay" onclick="if(event.target===this)closeCoverModal()">
+  <div class="tc-modal">
+    <h3 id="tc-cover-title">Who will cover?</h3>
+    <div class="tc-sub" id="tc-cover-sub"></div>
+    <div class="tc-agent-list" id="tc-cover-list"></div>
+    <div class="tc-modal-actions">
+      <button class="tc-btn-cancel" onclick="closeCoverModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ASSIST MODAL ── -->
+<div class="tc-modal-overlay" id="tc-assist-overlay" onclick="if(event.target===this)closeAssistModal()">
+  <div class="tc-modal">
+    <h3 id="tc-assist-title">Join to assist</h3>
+    <div class="tc-sub" id="tc-assist-sub"></div>
+    <input class="tc-name-input" id="tc-assist-name" type="text" placeholder="Your name…" />
+    <div class="tc-modal-actions">
+      <button class="tc-btn-cancel" onclick="closeAssistModal()">Cancel</button>
+      <button class="tc-btn-confirm" onclick="confirmAssist()">Join</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── CONFIRM STOP ASSIST MODAL ── -->
+<div class="tc-modal-overlay" id="tc-stopassist-overlay" onclick="if(event.target===this)closeStopAssistModal()">
+  <div class="tc-modal">
+    <h3>Stop assisting?</h3>
+    <div class="tc-sub" id="tc-stopassist-sub"></div>
+    <div class="tc-modal-actions">
+      <button class="tc-btn-cancel" onclick="closeStopAssistModal()">Keep helping</button>
+      <button class="tc-btn-confirm" onclick="confirmStopAssist()">Leave</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
