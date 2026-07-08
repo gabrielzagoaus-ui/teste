@@ -3055,10 +3055,10 @@ function openCoverModal(agentName, regionKey) {
   const agentSet = new Set();
   if (region) {
     region.shifts.forEach(sh => {
-      // From rotation
-      if (sh.rotation) {
-        sh.rotation.forEach(slot => {
-          (slot.agents || []).forEach(a => {
+      // From rotation — structure: { referenceMonday, teams: [['Agent1'], ['Agent2']] }
+      if (sh.rotation && Array.isArray(sh.rotation.teams)) {
+        sh.rotation.teams.forEach(team => {
+          (team || []).forEach(a => {
             const n = a.startsWith('__rep__') ? a.slice(7) : a;
             if (n && n !== agentName) agentSet.add(n);
           });
