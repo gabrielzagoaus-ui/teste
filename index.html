@@ -3051,18 +3051,28 @@ function openCoverModal(agentName, regionKey) {
   document.getElementById('tc-cover-title').textContent = agentName + ' — temporary cover';
   document.getElementById('tc-cover-sub').textContent = 'Who will cover ' + agentName + '?';
 
-  // Build list of all agents in this region (flat from schedule, deduplicated)
-  const dayNum = new Date().getDay();
+  // Build list of ALL agents registered in this region across all shifts/days
   const agentSet = new Set();
   if (region) {
     region.shifts.forEach(sh => {
-      const ags = sh.rotation
-        ? getRotationAgentsForDate(sh.rotation, new Intl.DateTimeFormat('en-CA').format(new Date()))
-        : ((sh.agents || {})[dayNum] || []);
-      ags.forEach(a => {
-        const n = a.startsWith('__rep__') ? a.slice(7) : a;
-        if (n && n !== agentName) agentSet.add(n);
-      });
+      // From rotation
+      if (sh.rotation) {
+        sh.rotation.forEach(slot => {
+          (slot.agents || []).forEach(a => {
+            const n = a.startsWith('__rep__') ? a.slice(7) : a;
+            if (n && n !== agentName) agentSet.add(n);
+          });
+        });
+      }
+      // From fixed agents (all days)
+      if (sh.agents) {
+        Object.values(sh.agents).forEach(dayAgents => {
+          (dayAgents || []).forEach(a => {
+            const n = a.startsWith('__rep__') ? a.slice(7) : a;
+            if (n && n !== agentName) agentSet.add(n);
+          });
+        });
+      }
     });
   }
 
@@ -3266,11 +3276,21 @@ function renderStatusCards() {
         onclickAttr = `onclick="openCoverModal('${primaryAgent.replace(/'/g, "\\'")}','${region.key}')"`;
       }
 
+      // Assistants in this region for the active shifts card
+      const regionAssistants = (_cache.assistants || []).filter(a => a.region === region.key);
+      const assistantsInCard = regionAssistants.length > 0
+        ? ' <span style="opacity:0.75;font-size:12px">+ ' + regionAssistants.map(a => a.name.split(' ')[0]).join(', ') + ' <span style="font-size:10px;font-weight:700">ASSIST</span></span>'
+        : '';
+
+      // Assist button for the card (stop propagation so it doesn't trigger cover modal)
+      const cardAssistBtn = `<button class="assist-btn" style="margin-top:6px;display:inline-block;opacity:0.85;" onclick="event.stopPropagation();openAssistModal('${region.key}','${primaryAgent.replace(/'/g, "\\'")}')" title="Join to assist">+ Assist</button>`;
+
       return `<div class="${cardCls}" ${onclickAttr} data-agents="${shiftAgentsJSON}">
         <div class="as-status-header"><span class="flag">${region.flag}</span> ${statusLabel}</div>
-        <div class="as-status-agent">${agentDisplay}</div>
+        <div class="as-status-agent">${agentDisplay}${assistantsInCard}</div>
         <div class="as-status-shift">${shift.name} · ${pad(shift.start[0])}:${pad(shift.start[1])} – ${pad(shift.end[0])}:${pad(shift.end[1])}</div>
         ${nextHTML}
+        ${cardAssistBtn}
       </div>`;
     } else if (status === 'weekend') {
       return `<div class="as-status-card">
@@ -3359,7 +3379,18 @@ function renderScheduleCards() {
         const agentContext = agents.map(a => a.startsWith('__rep__') ? a.slice(7) : a).join(', ');
         const regionKeySafe = region.key.replace(/'/g, "\\'");
         const agentContextSafe = agentContext.replace(/'/g, "\\'");
-        assistBtnHTML = ` <button class="assist-btn" onclick="event.stopPropagation();openAssistModal('${regionKeySafe}','${agentContextSafe}')" title="Join to assist">+ Assist</button>`;
+        assistBtnHTML = `<button class="assist-btn" onclick="event.stopPropagation();openAssistModal('${regionKeySafe}','${agentContextSafe}')" title="Join to assist">+ Assist</button> `;
+      }
+
+      // Assistants currently helping in this region — show as small pills next to agents
+      let assistantsHTML = '';
+      if (isActive) {
+        const regionAssistants = (_cache.assistants || []).filter(a => a.region === region.key);
+        if (regionAssistants.length > 0) {
+          assistantsHTML = regionAssistants.map(a =>
+            `<span class="agent-pill" style="background:rgba(21,101,192,0.85);color:#fff;font-size:10px;" title="Assisting">${a.name.split(' ')[0]} <span style="opacity:0.75;font-size:9px">ASSIST</span></span>`
+          ).join(' ');
+        }
       }
 
       rowsHTML += `<div class="sim-shift-row${rowCls}">
@@ -3367,7 +3398,7 @@ function renderScheduleCards() {
           <strong>${shift.name}</strong>
           <div class="sim-shift-time">${pad(shift.start[0])}:${pad(shift.start[1])} – ${pad(shift.end[0])}:${pad(shift.end[1])}${tzShort ? ' ' + tzShort : ''}</div>
         </div>
-        <div class="sim-agents">${agentsStr}${assistBtnHTML}</div>
+        <div class="sim-agents">${assistBtnHTML}${agentsStr}${assistantsHTML ? ' ' + assistantsHTML : ''}</div>
       </div>`;
     });
     
@@ -3964,6 +3995,7 @@ function initApp() {
   db.collection('shared').doc('assistants').onSnapshot(snap => {
     _cache.assistants = snap.exists ? (snap.data().list || []) : [];
     renderHeaderAgents();
+    renderStatusCards();
     renderScheduleCards();
   }, e => console.error('assistants onSnapshot:', e));
 
