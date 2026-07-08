@@ -3254,7 +3254,7 @@ function renderStatusCards() {
       // Temp cover state
       const primaryAgent = agentNames[0] || '';
       const cover = getTempCover(primaryAgent);
-      let statusLabel, cardCls, agentDisplay, onclickAttr;
+      let statusLabel, cardCls, agentDisplay;
 
       if (cover) {
         const coveredBy = cover.coveredBy;
@@ -3263,17 +3263,14 @@ function renderStatusCards() {
         agentDisplay = coveredBy
           ? `${coveredBy} <span class="temp-cover-badge" style="background:rgba(0,0,0,0.18);color:#1D2D3E">TEMP</span> <span style="opacity:0.6;font-size:11px">(covers ${primaryAgent})</span>`
           : `${primaryAgent} <span class="temp-cover-badge" style="background:rgba(0,0,0,0.18);color:#1D2D3E">UNCOVERED</span>`;
-        onclickAttr = `onclick="openCoverModal('${primaryAgent.replace(/'/g, "\\'")}','${region.key}')"`;
       } else if (anyAway) {
         statusLabel = 'Away';
         cardCls = 'as-status-card active-card away-card';
         agentDisplay = agents;
-        onclickAttr = `onclick="openCoverModal('${primaryAgent.replace(/'/g, "\\'")}','${region.key}')"`;
       } else {
         statusLabel = 'On shift now';
         cardCls = 'as-status-card active-card';
         agentDisplay = agents;
-        onclickAttr = `onclick="openCoverModal('${primaryAgent.replace(/'/g, "\\'")}','${region.key}')"`;
       }
 
       // Assistants in this region for the active shifts card
@@ -3282,10 +3279,12 @@ function renderStatusCards() {
         ? ' <span style="opacity:0.75;font-size:12px">+ ' + regionAssistants.map(a => a.name.split(' ')[0]).join(', ') + ' <span style="font-size:10px;font-weight:700">ASSIST</span></span>'
         : '';
 
-      // Assist button for the card (stop propagation so it doesn't trigger cover modal)
-      const cardAssistBtn = `<button class="assist-btn" style="margin-top:6px;display:inline-block;opacity:0.85;" onclick="event.stopPropagation();openAssistModal('${region.key}','${primaryAgent.replace(/'/g, "\\'")}')" title="Join to assist">+ Assist</button>`;
+      // Assist button for the card
+      const safeRegion = region.key.replace(/'/g, "\\'");
+      const safePrimary = primaryAgent.replace(/'/g, "\\'");
+      const cardAssistBtn = `<button class="assist-btn" style="margin-top:6px;display:inline-block;opacity:0.85;" onclick="event.stopPropagation();openAssistModal('${safeRegion}','${safePrimary}')">+ Assist</button>`;
 
-      return `<div class="${cardCls}" ${onclickAttr} data-agents="${shiftAgentsJSON}">
+      return `<div class="${cardCls}" onclick="openCoverModal('${safePrimary}','${safeRegion}')" data-agents="${shiftAgentsJSON}">
         <div class="as-status-header"><span class="flag">${region.flag}</span> ${statusLabel}</div>
         <div class="as-status-agent">${agentDisplay}${assistantsInCard}</div>
         <div class="as-status-shift">${shift.name} · ${pad(shift.start[0])}:${pad(shift.start[1])} – ${pad(shift.end[0])}:${pad(shift.end[1])}</div>
